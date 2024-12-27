@@ -2,8 +2,13 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { v4: uuidv4 } = require('uuid');
+const cors = require('cors');
 const app = express();
 
+
+
+// Utiliser CORS
+app.use(cors());
 // Fonction pour ajouter un délai
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -14,14 +19,33 @@ const normalizeDate = (dateStr) => {
         'July', 'August', 'September', 'October', 'November', 'December'
     ];
     const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const frenchMonths = [
+        'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+        'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
+    ];
 
     // Remplacer les mois abrégés par les mois complets
     shortMonths.forEach((shortMonth, index) => {
         dateStr = dateStr.replace(new RegExp(shortMonth, 'i'), months[index]);
     });
 
+    // Remplacer les mois français par les mois complets
+    frenchMonths.forEach((frenchMonth, index) => {
+        dateStr = dateStr.replace(new RegExp(frenchMonth, 'i'), months[index]);
+    });
+
     // Convertir la date en objet Date
-    const date = new Date(dateStr);
+    let date;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+        // Format "DD/MM/YYYY"
+        const [day, month, year] = dateStr.split('/');
+        date = new Date(`${year}-${month}-${day}`);
+    } else if (/^\d{2} \w+ \d{4}$/.test(dateStr)) {
+        // Format "DD Month YYYY"
+        date = new Date(dateStr);
+    } else {
+        date = new Date(dateStr);
+    }
 
     // Vérifier si la date est valide
     if (isNaN(date.getTime())) {
@@ -35,6 +59,20 @@ const normalizeDate = (dateStr) => {
     const day = String(date.getDate()).padStart(2, '0');
 
     return `${year}-${month}-${day}`;
+};
+
+// Fonction pour convertir une date au format "29 Nov" en une date complète
+const convertToFullDate = (dateStr) => {
+    const months = {
+        Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+        Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+    };
+
+    const [day, month] = dateStr.split(' ');
+    const year = new Date().getFullYear(); // Utiliser l'année courante
+
+    const fullDate = `${year}-${months[month]}-${day.padStart(2, '0')}`;
+    return fullDate;
 };
 
 // Fonction pour scraper les articles de La Gazette des Comores
@@ -63,7 +101,7 @@ const scrapeLagazette = async (url) => {
                         image: 'https://lagazettedescomores.com/' + image,
                         title: title.trim(),
                         detail_link: 'https://lagazettedescomores.com/' + lien_article,
-                        date: date.trim(),
+                        date: convertToFullDate(date.trim()),
                         categorie: categorie.trim(),
                     };
 
@@ -92,7 +130,7 @@ const scrapeLagazette = async (url) => {
     }
 };
 
-// Fonction pour scraper les articles de Comores Infos avec gestion des erreurs et réessai
+// Fonction pour scraper les articles de Comores Infos avec gestion des erreurs et réessais
 const scrapeComoresInfos = async (url) => {
     const maxRetries = 3;
     let retries = 0;
@@ -150,7 +188,7 @@ const scrapeComoresInfos = async (url) => {
                             id: uuidv4(),
                             image: image ? image.trim() : null,
                             title: title.trim(),
-                            date: date.trim(),
+                            date: normalizeDate(date.trim()),
                             body: body.trim(),
                             categorie: categorie.trim(),
                             detail_link: detail_link.trim(),
@@ -189,10 +227,9 @@ const scrapeAlWatan = async (url) => {
             $('article')
                 .map(async (i, el) => {
                     const detail_link = url + $(el).find('a').attr('href');
-                    console.log(`detail_link: ${detail_link}`)
-                    
+                    // console.log(`detail_link: ${detail_link}`);
 
-                    if (!detail_link ) return null;
+                    if (!detail_link) return null;
 
                     const { data: detailHtml } = await axios.get(detail_link, {
                         headers: {
@@ -206,18 +243,17 @@ const scrapeAlWatan = async (url) => {
                     const categorie = $detail('article .line-date span:nth-child(1)').text();
                     const date = $detail('article .line-date time').text();
                     const image = url + $detail('article div.img-article img').attr('src');
-                   
 
                     const article = {
                         id: uuidv4(),
                         image: image ? image.trim() : null,
                         title: title.trim(),
-                        date: date.trim(),
+                        date: normalizeDate(date.trim()),
                         body: body.trim(),
                         categorie: categorie.trim(),
                         detail_link: detail_link.trim(),
                     };
-                    // console.log(article)
+                    // console.log(article);
                     return article;
                 })
                 .get()
@@ -228,35 +264,32 @@ const scrapeAlWatan = async (url) => {
         console.error('Erreur lors du scraping de Al Watan :', error.message);
         return [];
     }
-
-}
-
+};
 
 app.get('/scrape', async (req, res) => {
     try {
         const laGazetteDesComoresUrl = 'https://www.lagazettedescomores.com';
         const comoresInfoUrl = 'https://www.comoresinfos.net/';
-        const alWatanUrl = "https://alwatwan.net/"
+        const alWatanUrl = 'https://alwatwan.net/';
 
-        const [articleLagazette, articleComoresinfos , articleAlwatan] = await Promise.all([
+        const [articleLagazette, articleComoresinfos, articleAlwatan] = await Promise.all([
             scrapeLagazette(laGazetteDesComoresUrl),
             scrapeComoresInfos(comoresInfoUrl),
             scrapeAlWatan(alWatanUrl)
         ]);
 
-        // Concaténer les articles des deux sites
-        const articles = [...articleLagazette, ...articleComoresinfos , ...articleAlwatan];
+        // Concaténer les articles des trois sites
+        const articles = [...articleLagazette, ...articleComoresinfos, ...articleAlwatan];
 
-        // const articles = [...articleAlwatan];
+        // Normaliser les dates et trier les articles par date
+        articles.forEach(article => {
+            article.normalized_date = normalizeDate(article.date);
+        });
 
-        // // Normaliser les dates et trier les articles par date
-        // articles.forEach(article => {
-        //     article.normalized_date = normalizeDate(article.date);
-        // });
-
-        // articles.sort((a, b) => new Date(b.normalized_date) - new Date(a.normalized_date));
+        articles.sort((a, b) => new Date(b.normalized_date) - new Date(a.normalized_date));
 
         // Retourner les articles dans la réponse
+        console.dir(articles)
         res.json(articles);
     } catch (error) {
         console.error('Erreur lors du scraping :', error.message);
