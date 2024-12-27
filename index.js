@@ -3,12 +3,12 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const fs = require('fs');
 const app = express();
-
-
 
 // Utiliser CORS
 app.use(cors());
+
 // Fonction pour ajouter un délai
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -266,7 +266,8 @@ const scrapeAlWatan = async (url) => {
     }
 };
 
-app.get('/scrape', async (req, res) => {
+// Fonction pour exécuter le scraping toutes les heures et enregistrer les données dans un fichier JSON
+const scrapeAndSaveData = async () => {
     try {
         const laGazetteDesComoresUrl = 'https://www.lagazettedescomores.com';
         const comoresInfoUrl = 'https://www.comoresinfos.net/';
@@ -288,48 +289,35 @@ app.get('/scrape', async (req, res) => {
 
         articles.sort((a, b) => new Date(b.normalized_date) - new Date(a.normalized_date));
 
-        // Retourner les articles dans la réponse
-        console.dir(articles)
-        res.json(articles);
+        // Enregistrer les données dans un fichier JSON temporaire
+        const tempFilePath = 'data_temp.json';
+        fs.writeFileSync(tempFilePath, JSON.stringify(articles, null, 2));
+
+        // Vérifier que l'écriture est complète avant de renommer le fichier
+        const finalFilePath = 'data.json';
+        fs.renameSync(tempFilePath, finalFilePath);
+
+        console.log('Données scrapées et enregistrées dans data.json');
     } catch (error) {
         console.error('Erreur lors du scraping :', error.message);
-        res.status(500).json({ error: 'Erreur lors du scraping' });
     }
-});
+};
 
-const categories = [
-    {
-        id: 'politique',
-        label: 'Politique',
-    },
-    {
-        id: 'sport',
-        label: 'Sports',
-    },
-    {
-        id: 'sante',
-        label: 'Santé',
-    },
-    {
-        id: 'religion',
-        label: 'Religion',
-    },
-    {
-        id: 'culture',
-        label: 'Culture',
-    },
-    {
-        id: 'soc',
-        label: 'Société',
-    },
-    {
-        id: 'eco',
-        label: 'Économie',
-    },
-];
+// Exécuter le scraping toutes les heures
+setInterval(scrapeAndSaveData, 3600000); // 3600000 millisecondes = 1 heure
 
-app.get('/categories', (req, res) => {
-    res.json(categories);
+app.get('/scrape', async (req, res) => {
+    try {
+        // Lire le fichier JSON enregistré
+        const data = fs.readFileSync('data.json', 'utf8');
+        const articles = JSON.parse(data);
+
+        // Envoyer la réponse JSON
+        res.json(articles);
+    } catch (error) {
+        console.error('Erreur lors de la lecture du fichier JSON :', error.message);
+        res.status(500).json({ error: 'Erreur lors de la lecture du fichier JSON' });
+    }
 });
 
 app.listen(3000, () => {
