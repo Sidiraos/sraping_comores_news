@@ -94,7 +94,7 @@ const scrapeLagazette = async (url) => {
                     const date = $(el).find('.actu-mini-footer div > ul > li:nth-child(1)').text();
                     const categorie = $(el).find('.actu-mini-footer div > ul > li:nth-child(3) a').text();
 
-                    if (!image || !lien_article || !title) return null;
+                    if (!image || !lien_article || !title || !date || !categorie) return null;
 
                     const article = {
                         id: uuidv4(),
@@ -184,6 +184,8 @@ const scrapeComoresInfos = async (url) => {
                         const categorie = $detail('.entry-header p span.entry-meta-categories a:nth-child(2)').text();
                         const date = $detail('.entry-header p span.entry-meta-date a').text();
 
+                        if (!date) return null;
+
                         const article = {
                             id: uuidv4(),
                             image: image ? image.trim() : null,
@@ -244,6 +246,8 @@ const scrapeAlWatan = async (url) => {
                     const date = $detail('article .line-date time').text();
                     const image = url + $detail('article div.img-article img').attr('src');
 
+                    if (!title || !date) return null;
+
                     const article = {
                         id: uuidv4(),
                         image: image ? image.trim() : null,
@@ -282,35 +286,23 @@ const scrapeAndSaveData = async () => {
         // Concaténer les articles des trois sites
         const articles = [...articleLagazette, ...articleComoresinfos, ...articleAlwatan];
 
-        // Normaliser les dates et trier les articles par date
-        articles.forEach(article => {
-            article.normalized_date = normalizeDate(article.date);
-        });
+        // // Normaliser les dates et trier les articles par date
+        // articles.forEach(article => {
+        //     article.normalized_date = normalizeDate(article.date);
+        // });
 
-        articles.sort((a, b) => new Date(b.normalized_date) - new Date(a.normalized_date));
+        // articles.sort((a, b) => new Date(b.normalized_date) - new Date(a.normalized_date));
 
-        // Enregistrer les données dans un fichier JSON temporaire
-        const tempFilePath = 'data_temp.json';
-        fs.writeFileSync(tempFilePath, JSON.stringify(articles, null, 2));
-
-        // Vérifier que l'écriture est complète avant de renommer le fichier
-        const finalFilePath = 'data.json';
-        fs.renameSync(tempFilePath, finalFilePath);
-
-        console.log('Données scrapées et enregistrées dans data.json');
+        return articles;
     } catch (error) {
         console.error('Erreur lors du scraping :', error.message);
     }
 };
 
-// Exécuter le scraping toutes les heures
-setInterval(scrapeAndSaveData, 3600000); // 3600000 millisecondes = 1 heure
-
 app.get('/scrape', async (req, res) => {
     try {
         // Lire le fichier JSON enregistré
-        const data = fs.readFileSync('data.json', 'utf8');
-        const articles = JSON.parse(data);
+        const articles = await scrapeAndSaveData();
 
         // Envoyer la réponse JSON
         res.json(articles);
